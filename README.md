@@ -1,52 +1,35 @@
 # PaperTrail
 
-Ask questions about computer science research on arXiv. PaperTrail finds the most relevant
-papers by meaning, then has Claude answer from them, citing each claim with its arXiv id.
+Ask a question about computer science research and get an answer built from real arXiv papers, with every claim cited.
 
-Corpus: 1,044,349 arXiv computer science papers (title + abstract).
+```
+$ papertrail ask "How do people defend large language models against prompt injection?"
+
+Defenses fall into several groups: prompt-level filtering and paraphrasing [arXiv:2511.18933],
+reusing attack techniques against the injected instruction [arXiv:2411.00459], ...
+
+Sources:
+1. A Critical Evaluation of Defenses against Prompt Injection Attacks - https://arxiv.org/abs/2505.18333
+...
+```
 
 ## How it works
 
-| Step | Where | What happens |
-| --- | --- | --- |
-| 1-5 | Kaggle (GPU) | Load arXiv, keep CS papers, clean, embed each paper into 384 numbers - `kaggle/embed_notebook.py` |
-| 6 | Laptop | Build a FAISS HNSW index + a DuckDB table of paper details - `papertrail build-index` |
-| 7 | Laptop | Embed the question, find the nearest papers - `papertrail search` |
-| 8 | Laptop | An LLM (free OpenRouter model or Claude) answers from those papers with citations - `papertrail ask` |
-| 9 | Laptop | HTTP API - `papertrail serve` |
+1. Each of 1,044,349 arXiv computer science papers was turned into a vector (384 numbers that capture its meaning) on a free Kaggle GPU.
+2. Your question is turned into a vector the same way, and the closest papers are found in milliseconds.
+3. An LLM reads those papers' abstracts and writes the answer, citing each paper.
 
-## Setup (WSL)
+## Docs
+
+- [Architecture](docs/architecture.md) - system design, measured timings, and why each component was chosen
+- [Setup](docs/setup.md) - what you need, how to build it, and how to run it
+
+## Quick start
 
 ```bash
-python3 -m venv ~/.venvs/papertrail
 source ~/.venvs/papertrail/bin/activate
-pip install torch --index-url https://download.pytorch.org/whl/cpu   # CPU-only build, much smaller
-pip install -e .
-cp .env.example .env    # then add an OpenRouter key (free) or an Anthropic key
+papertrail search "graph neural networks for molecules"
+papertrail ask "How do diffusion models compare to GANs?"
 ```
 
-Data goes in `~/rag-data` (inside WSL, not under `/mnt/c` - that is much slower):
-
-```bash
-mkdir -p ~/rag-data
-mv /mnt/c/Users/<you>/Downloads/vectors.npy /mnt/c/Users/<you>/Downloads/papers.parquet ~/rag-data/
-```
-
-## Use
-
-```bash
-papertrail build-index                                   # once, ~10-30 min
-papertrail search "graph neural networks for molecules"  # retrieval only, free
-papertrail ask "How do diffusion models compare to GANs for image generation?"
-papertrail ask "What are common defenses against prompt injection?" --category cs.CR
-papertrail serve                                         # then open http://localhost:8000/docs
-```
-
-## Settings
-
-All in `papertrail/config.py`; the common ones can be set in `.env`:
-
-- `LLM_PROVIDER` - `openrouter` (free models) or `anthropic` (Claude)
-- `OPENROUTER_MODEL` - any `:free` model from openrouter.ai/models
-- `PAPERTRAIL_MODEL` - Claude model when using `anthropic`
-- `PAPERTRAIL_DATA` - data folder, `PAPERTRAIL_THREADS` - CPU threads
+Speed is measured on every run (`logs/timings.log`); changes are tracked in [`logs/CHANGES.md`](logs/CHANGES.md).
