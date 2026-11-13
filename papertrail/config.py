@@ -29,6 +29,14 @@ HNSW_EF_SEARCH = 128
 # How many papers to retrieve and hand to Claude.
 TOP_K = 8
 
+# Which service writes the answers: "openrouter" (free models) or "anthropic" (Claude).
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "openrouter").strip().lower()
+
+# OpenRouter
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+OPENROUTER_URL = "https://openrouter.ai/api/v1"
+
 # Claude
 CLAUDE_MODEL = os.environ.get("PAPERTRAIL_MODEL", "claude-opus-5-5")
 

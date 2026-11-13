@@ -10,6 +10,7 @@ dependencies = [
     "faiss-cpu",
     "fastapi",
     "numpy",
+    "openai",
     "pandas",
     "pyarrow",
     "python-dotenv",

@@ -12,7 +12,7 @@ Corpus: 1,044,349 arXiv computer science papers (title + abstract).
 | 1-5 | Kaggle (GPU) | Load arXiv, keep CS papers, clean, embed each paper into 384 numbers - `kaggle/embed_notebook.py` |
 | 6 | Laptop | Build a FAISS HNSW index + a DuckDB table of paper details - `papertrail build-index` |
 | 7 | Laptop | Embed the question, find the nearest papers - `papertrail search` |
-| 8 | Laptop | Claude answers from those papers with citations - `papertrail ask` |
+| 8 | Laptop | An LLM (free OpenRouter model or Claude) answers from those papers with citations - `papertrail ask` |
 | 9 | Laptop | HTTP API - `papertrail serve` |
 
 ## Setup (WSL)
@@ -22,7 +22,7 @@ python3 -m venv ~/.venvs/papertrail
 source ~/.venvs/papertrail/bin/activate
 pip install torch --index-url https://download.pytorch.org/whl/cpu   # CPU-only build, much smaller
 pip install -e .
-cp .env.example .env    # then put your ANTHROPIC_API_KEY in .env
+cp .env.example .env    # then add an OpenRouter key (free) or an Anthropic key
 ```
 
 Data goes in `~/rag-data` (inside WSL, not under `/mnt/c` - that is much slower):
@@ -45,4 +45,8 @@ papertrail serve                                         # then open http://loca
 ## Settings
 
 All in `papertrail/config.py`; the common ones can be set in `.env`:
-`PAPERTRAIL_MODEL` (Claude model), `PAPERTRAIL_DATA` (data folder), `PAPERTRAIL_THREADS` (CPU threads).
+
+- `LLM_PROVIDER` - `openrouter` (free models) or `anthropic` (Claude)
+- `OPENROUTER_MODEL` - any `:free` model from openrouter.ai/models
+- `PAPERTRAIL_MODEL` - Claude model when using `anthropic`
+- `PAPERTRAIL_DATA` - data folder, `PAPERTRAIL_THREADS` - CPU threads
