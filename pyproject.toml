@@ -1,0 +1,29 @@
+[project]
+name = "papertrail"
+version = "0.1.0"
+description = "Ask questions about computer science papers on arXiv; every answer cites its sources."
+requires-python = ">=3.11"
+# torch is installed separately (CPU build) - see README.
+dependencies = [
+    "anthropic",
+    "duckdb",
+    "faiss-cpu",
+    "fastapi",
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "python-dotenv",
+    "sentence-transformers",
+    "typer",
+    "uvicorn[standard]",
+]
+
+[project.scripts]
+papertrail = "papertrail.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["papertrail"]

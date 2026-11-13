@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.egg-info/
+.venv/
+# data lives in ~/rag-data, but never commit it if it lands here
+*.npy
+*.parquet
+*.faiss
+*.duckdb
