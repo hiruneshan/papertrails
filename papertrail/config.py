@@ -42,3 +42,12 @@ CLAUDE_MODEL = os.environ.get("PAPERTRAIL_MODEL", "claude-opus-5-5")
 
 # CPU threads (i7-13620H has 16 threads; 8 is a good starting point).
 CPU_THREADS = int(os.environ.get("PAPERTRAIL_THREADS", "8"))
+
+# Cache (Redis). CACHE=off runs without it; if Redis is unreachable PaperTrail also runs without it.
+CACHE = os.environ.get("CACHE", "redis").strip().lower()
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+ANSWER_TTL_DAYS = int(os.environ.get("ANSWER_TTL_DAYS", "30"))
+QVEC_TTL_DAYS = int(os.environ.get("QVEC_TTL_DAYS", "90"))
+
+# Bump when the LLM instructions in generate.py change, so old cached answers stop matching.
+PROMPT_VERSION = 1

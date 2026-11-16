@@ -94,7 +94,9 @@ def _answer_openrouter(client, user_message: str) -> tuple[str, dict]:
     usage = {}
     if response.usage:
         usage = {"input_tokens": response.usage.prompt_tokens, "output_tokens": response.usage.completion_tokens}
-    return text or "The model returned an empty answer. Try again or pick another OPENROUTER_MODEL.", usage
+    if not text:
+        return "The model returned an empty answer. Try again or pick another OPENROUTER_MODEL.", usage | {"llm_error": "empty"}
+    return text, usage
 
 
 def _answer_claude(client: anthropic.Anthropic, user_message: str) -> tuple[str, dict]:
@@ -115,7 +117,7 @@ def _answer_claude(client: anthropic.Anthropic, user_message: str) -> tuple[str,
 
     usage = {"input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens}
     if response.stop_reason == "refusal":
-        return "The model declined to answer this question.", usage
+        return "The model declined to answer this question.", usage | {"llm_error": "refusal"}
     text = "".join(block.text for block in response.content if block.type == "text").strip()
     if response.stop_reason == "max_tokens":
         text += "\n\n[answer cut off at the length limit]"

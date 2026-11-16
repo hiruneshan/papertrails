@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 
-from . import config
+from . import cache, config
 from .timing import Timer
 
 
@@ -31,10 +31,19 @@ class Retriever:
                timer: Timer | None = None) -> list[dict]:
         timer = timer or Timer()
 
-        # 1. Embed the question with the same model used for the papers.
-        with timer.stage("embed_query"):
-            qv = self.model.encode([config.QUERY_PREFIX + question], normalize_embeddings=True)
-            qv = np.asarray(qv, dtype=np.float32)
+        # 1. Embed the question with the same model used for the papers (or reuse a cached vector).
+        qv = None
+        if cache.enabled:
+            with timer.stage("qvec_cache"):
+                qv = cache.get_qvec(question)
+            timer.info["qvec_cache_hit"] = qv is not None
+        if qv is None:
+            with timer.stage("embed_query"):
+                qv = self.model.encode([config.QUERY_PREFIX + question], normalize_embeddings=True)
+                qv = np.asarray(qv, dtype=np.float32)
+            if cache.enabled:
+                with timer.stage("qvec_cache"):
+                    cache.put_qvec(question, qv)
 
         # 2. Find the nearest papers. Fetch extra when filtering by category,
         #    since some hits will be filtered out.

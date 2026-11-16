@@ -6,8 +6,9 @@ import anthropic
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from . import config
-from .generate import answer, make_client, model_name
+from . import cache, config
+from .generate import make_client, model_name
+from .pipeline import ask as run_ask
 from .retrieve import Retriever
 from .timing import Timer, log_run
 
@@ -40,7 +41,8 @@ def _timing(timer: Timer) -> dict:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "papers": state["retriever"].index.ntotal, "provider": config.LLM_PROVIDER, "model": model_name()}
+    return {"ok": True, "papers": state["retriever"].index.ntotal, "provider": config.LLM_PROVIDER,
+            "model": model_name(), "cache": cache.available()}
 
 
 @app.get("/search")
@@ -56,9 +58,8 @@ def search(q: str, k: int = config.TOP_K, category: str | None = None):
 def ask(req: AskRequest):
     """Retrieve papers, then have the LLM answer from them with citations."""
     timer = Timer()
-    papers = state["retriever"].search(req.question, req.k, req.category, timer)
     try:
-        text = answer(req.question, papers, state["client"], timer)
+        text, papers = run_ask(state["retriever"], state["client"], req.question, req.k, req.category, timer)
     except anthropic.AuthenticationError:
         raise HTTPException(500, "Invalid or missing ANTHROPIC_API_KEY")
     except anthropic.RateLimitError:
@@ -70,4 +71,5 @@ def ask(req: AskRequest):
     except Exception as e:  # OpenRouter errors not handled in generate.py
         raise HTTPException(502, f"{config.LLM_PROVIDER} error: {e}")
     log_run("api-ask", timer, question=req.question, k=req.k, category=req.category)
-    return {"question": req.question, "answer": text, "papers": papers, "timing_ms": _timing(timer)}
+    return {"question": req.question, "answer": text, "papers": papers,
+            "cached": timer.info.get("answer_cache_hit", False), "timing_ms": _timing(timer)}

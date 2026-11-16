@@ -29,7 +29,8 @@ _lock = threading.Lock()
 # Stages in pipeline order (used for display).
 STAGE_ORDER = [
     "import_libs", "load_model", "load_index", "open_db",                       # startup
-    "embed_query", "vector_search", "db_lookup", "llm",                         # per question
+    "qvec_cache", "embed_query", "vector_search", "db_lookup",                  # per question: search
+    "answer_cache", "answer_wait", "llm",                                       # per question: answer
     "load_vectors", "write_db", "build_hnsw", "save_index",                     # build-index
 ]
 
@@ -83,6 +84,8 @@ def settings() -> dict:
         "hnsw_ef_construction": config.HNSW_EF_CONSTRUCTION,
         "hnsw_ef_search": config.HNSW_EF_SEARCH,
         "cpu_threads": config.CPU_THREADS,
+        "cache": config.CACHE,
+        "prompt_version": config.PROMPT_VERSION,
     }
 
 
