@@ -3,22 +3,29 @@ name = "papertrail"
 version = "0.1.0"
 description = "Ask questions about computer science papers on arXiv; every answer cites its sources."
 requires-python = ">=3.11"
-# torch is installed separately (CPU build) - see README.
+# torch is installed separately (CPU build) - see docs/setup.md. At question time only onnxruntime
+# (or openvino) and tokenizers are used; torch and sentence-transformers serve EMBED_BACKEND=torch and the tests.
 dependencies = [
     "anthropic",
     "duckdb",
     "faiss-cpu",
     "fastapi",
     "numpy",
+    "onnxruntime",
     "openai",
+    "openvino",
     "pandas",
     "pyarrow",
     "python-dotenv",
     "redis",
     "sentence-transformers",
+    "tokenizers",
     "typer",
     "uvicorn[standard]",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest"]
 
 [project.scripts]
 papertrail = "papertrail.cli:app"

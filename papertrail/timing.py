@@ -79,6 +79,8 @@ def settings() -> dict:
         "provider": config.LLM_PROVIDER,
         "llm_model": config.OPENROUTER_MODEL if config.LLM_PROVIDER == "openrouter" else config.CLAUDE_MODEL,
         "embed_model": config.EMBED_MODEL,
+        "embed_backend": config.EMBED_BACKEND,
+        "encoder_threads": config.ENCODER_THREADS,
         "top_k": config.TOP_K,
         "hnsw_m": config.HNSW_M,
         "hnsw_ef_construction": config.HNSW_EF_CONSTRUCTION,

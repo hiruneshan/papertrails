@@ -3,10 +3,9 @@
 import duckdb
 import faiss
 import numpy as np
-import torch
-from sentence_transformers import SentenceTransformer
 
 from . import cache, config
+from .encoder import load_encoder
 from .timing import Timer
 
 
@@ -19,8 +18,7 @@ class Retriever:
             if not path.exists():
                 raise SystemExit(f"Missing {path}. Run `papertrail build-index` first.")
         with timer.stage("load_model"):
-            torch.set_num_threads(config.CPU_THREADS)
-            self.model = SentenceTransformer(config.EMBED_MODEL, device="cpu")
+            self.encoder = load_encoder()  # EMBED_BACKEND: onnx-int8 by default, PyTorch only if set to torch
         with timer.stage("load_index"):
             self.index = faiss.read_index(str(config.INDEX))
             self.index.hnsw.efSearch = config.HNSW_EF_SEARCH
@@ -39,8 +37,7 @@ class Retriever:
             timer.info["qvec_cache_hit"] = qv is not None
         if qv is None:
             with timer.stage("embed_query"):
-                qv = self.model.encode([config.QUERY_PREFIX + question], normalize_embeddings=True)
-                qv = np.asarray(qv, dtype=np.float32)
+                qv = self.encoder.encode([config.QUERY_PREFIX + question])
             if cache.enabled:
                 with timer.stage("qvec_cache"):
                     cache.put_qvec(question, qv)

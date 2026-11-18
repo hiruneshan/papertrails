@@ -65,10 +65,24 @@ Open `.env` and fill in one key:
 | `PAPERTRAIL_MODEL` | Claude model, e.g. `claude-opus-5-5` or the cheaper `claude-haiku-5-5` |
 | `PAPERTRAIL_DATA` | data folder, default `~/rag-data` |
 | `PAPERTRAIL_THREADS` | CPU threads, default 8 |
+| `EMBED_BACKEND` | question encoder: `onnx-int8` (default), `onnx`, `openvino`, `onnx-int8-avx2`, `openvino-int8`, `torch` |
 
 `.env` is git-ignored. Never commit it or paste keys into chats.
 
-## Part 4 - Build the index (once)
+## Part 4 - Export the question encoder (once)
+
+Questions are embedded on the CPU with an int8 ONNX version of the model, which needs no PyTorch at question time. Export it once, in a separate environment (the export tools need older library versions than the app):
+
+```bash
+python3 -m venv ~/.venvs/papertrail-export
+~/.venvs/papertrail-export/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+~/.venvs/papertrail-export/bin/pip install "sentence-transformers[onnx,openvino]" datasets "huggingface-hub>=0.34,<1.0"
+~/.venvs/papertrail-export/bin/python scripts/export_encoder.py
+```
+
+This writes `~/rag-data/encoder/` (about 350 MB, all variants). To use the original PyTorch encoder instead, set `EMBED_BACKEND=torch` in `.env`.
+
+## Part 5 - Build the index (once)
 
 ```bash
 papertrail build-index
@@ -76,7 +90,7 @@ papertrail build-index
 
 Takes about 7 minutes on an i7-13620H and creates `index_hnsw.faiss` and `papers.duckdb` in `~/rag-data`.
 
-## Part 5 - Use it
+## Part 6 - Use it
 
 Each new terminal needs:
 
@@ -95,6 +109,16 @@ source ~/.venvs/papertrail/bin/activate
 | `papertrail report` | Median time per stage for each logged change |
 | `papertrail log-change <label> "<what changed>"` | Records a change; later runs are tagged with it |
 
+## Tests
+
+```bash
+~/.venvs/papertrail/bin/pip install pytest
+~/.venvs/papertrail/bin/python -m pytest -q
+```
+
+Checks every encoder against the original model and runs real searches on the index (about 35 s).
+`scripts/compare_encoders.py` reruns the full encoder comparison (accuracy and speed of every backend).
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -102,5 +126,6 @@ source ~/.venvs/papertrail/bin/activate
 | `429` / "model is busy or you've hit today's free limit" | Wait a minute, or set another `:free` model as `OPENROUTER_MODEL` |
 | "Warning: You are sending unauthenticated requests to the HF Hub" | Harmless; it only checks for model updates |
 | `Missing ... vectors.npy` | The data files are not in `PAPERTRAIL_DATA` (default `~/rag-data`) |
-| Each command takes 30-60 s | Normal startup (libraries + 1.8 GB index). Use `papertrail serve` to load once |
+| Each command takes several seconds before searching | Loading the 1.8 GB index. Use `papertrail serve` to load once |
+| `Missing .../encoder/...` | Run the one-time export in Part 4, or set `EMBED_BACKEND=torch` |
 | Kaggle download fails for big files | Use the `FileLink` cell above, or download from a saved version's Output tab |

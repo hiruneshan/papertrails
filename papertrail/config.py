@@ -20,6 +20,11 @@ EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 # bge models expect this prefix on questions (not on papers).
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
+# How the question encoder runs: torch, onnx, onnx-int8, onnx-int8-avx2, openvino, openvino-int8.
+# Everything except torch uses files from scripts/export_encoder.py, stored in ENCODER_DIR.
+EMBED_BACKEND = os.environ.get("EMBED_BACKEND", "onnx-int8")
+ENCODER_DIR = DATA_DIR / "encoder"
+
 # HNSW index settings. M = links per node, efConstruction = build effort,
 # efSearch = how widely each search explores (higher = better recall, slower).
 HNSW_M = 32
@@ -42,6 +47,8 @@ CLAUDE_MODEL = os.environ.get("PAPERTRAIL_MODEL", "claude-opus-5-5")
 
 # CPU threads (i7-13620H has 16 threads; 8 is a good starting point).
 CPU_THREADS = int(os.environ.get("PAPERTRAIL_THREADS", "8"))
+# Threads for embedding one question (one short input often runs fastest on fewer threads).
+ENCODER_THREADS = int(os.environ.get("ENCODER_THREADS", str(CPU_THREADS)))
 
 # Cache (Redis). CACHE=off runs without it; if Redis is unreachable PaperTrail also runs without it.
 CACHE = os.environ.get("CACHE", "redis").strip().lower()

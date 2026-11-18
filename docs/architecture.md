@@ -30,7 +30,7 @@ flowchart TB
 
   subgraph QUERY["Laptop - every question"]
     direction LR
-    Q["question"] --> QE["5 · embed question<br/>same model"]
+    Q["question"] --> QE["5 · embed question<br/>same model, ONNX int8"]
     QE --> SR["6 · nearest-neighbour<br/>search"]
     SR --> LK["7 · look up<br/>title + abstract"]
     LK --> LLM["8 · LLM writes answer<br/>with [arXiv:id] citations"]
@@ -50,7 +50,7 @@ flowchart TB
 | 2 · Clean | Kaggle | Collapse whitespace, drop empty, short and withdrawn abstracts, drop exact duplicates, count tokens | `clean.parquet`, 1,044,349 papers |
 | 3 · Embed | Kaggle | Turn each `title + abstract` into 384 numbers, in shards of 100k (finished shards are skipped on rerun) | `vectors.npy`, `papers.parquet` |
 | 4 · Build index | Laptop | Link every vector to its nearest neighbours (HNSW); load paper text into DuckDB | `index_hnsw.faiss`, `papers.duckdb` |
-| 5 · Embed question | Laptop | Same model, with bge's query prefix | 384 numbers |
+| 5 · Embed question | Laptop | Same model, run with ONNX Runtime as int8, with bge's query prefix | 384 numbers |
 | 6 · Search | Laptop | Walk the HNSW graph to the 8 closest papers | row numbers + similarity scores |
 | 7 · Look up | Laptop | Fetch those rows' text from DuckDB; optional category filter | 8 papers |
 | 8 · Answer | Internet | Send instructions + 8 abstracts + question to the LLM | cited answer |
@@ -86,18 +86,20 @@ flowchart TB
 | Index build | 7.3 min (~2,400 vectors/s, 8 threads) |
 | Index file | 1.8 GB |
 | DuckDB file | 702 MB |
-| Startup: import libraries | 12–16 s |
-| Startup: load index from disk | 7–17 s |
-| Startup: load embedding model | ~1 s |
-| Per question: embed question | 190 ms (median) |
-| Per question: FAISS search | 3 ms |
-| Per question: DuckDB lookup | 22 ms |
-| Per question: search total | 225 ms (median of 30) |
-| Per question: LLM answer (free Nemotron 3 Ultra) | ~25 s (1 run) |
+| Measure | v0-baseline (PyTorch encoder) | v1-onnx-int8 (current) |
+| --- | --- | --- |
+| Startup: import libraries | 12.3 s | 0.2 s |
+| Startup: load embedding model | 0.8 s | 0.5 s |
+| Startup: load index from disk | 4–17 s (varies with disk cache) | same |
+| Per question: embed question | 190 ms | 13 ms |
+| Per question: FAISS search | 3 ms | 4 ms |
+| Per question: DuckDB lookup | 22 ms | 19 ms |
+| Per question: search total | 225 ms | 38 ms |
+| Per question: LLM answer (free Nemotron 3 Ultra) | ~20–25 s | ~18 s |
 
-Timings come from `papertrail bench` (label `v0-baseline`). Every run is logged in `logs/timings.log`; changes are listed in `logs/CHANGES.md`.
+Search timings are medians of 30 runs from `papertrail bench`. Every run is logged in `logs/timings.log`; changes are listed in `logs/CHANGES.md`.
 
-**Where the time goes:** the LLM call and the one-time startup dominate. Search itself is under a quarter of a second, and most of that is embedding the question.
+**Where the time goes:** the LLM call now accounts for almost all of a question's time. Startup is dominated by loading the 1.8 GB index.
 
 ## Components: why we use them, and how they scale
 
@@ -112,6 +114,23 @@ Timings come from `papertrail bench` (label `v0-baseline`). Every run is logged 
 ### Embedding model: `BAAI/bge-small-en-v1.5`
 **Why:** strong retrieval quality for its size (~33M parameters). Its 384 numbers per paper keep storage and search cheap.
 **At scale:** storage and memory grow with the number of papers × dimensions, so small vectors keep 10M papers practical. Changing the model later means re-embedding every paper, and questions must always use the same model as the papers.
+
+### Question encoder: ONNX Runtime, int8
+**Why:** papers were embedded once on the GPU, but every question is embedded on the laptop CPU. PyTorch took 12 s just to import and 190 ms per question. The same model exported to ONNX with int8 weights (`scripts/export_encoder.py`) runs with only `onnxruntime` and `tokenizers`: 0.2 s to import and 13 ms per question.
+**Accuracy:** checked against PyTorch on 1,010 questions (`scripts/compare_encoders.py`). With 1,000 paper titles as questions, the right paper ranks first 92.1% of the time (PyTorch 92.0%) and is in the top 10 97.1% of the time (PyTorch 97.0%). About 10% of lower-ranked results change places. `tests/test_encoder.py` guards this.
+
+| Backend (`EMBED_BACKEND`) | Similarity to PyTorch | Right paper 1st / top 10 | Embed | Cold start |
+| --- | --- | --- | --- | --- |
+| `torch` (original) | 1.000 | 92.0% / 97.0% | 28 ms | 12.7 s |
+| `onnx` (float32) | 1.000 | 92.0% / 97.0% | 13 ms | 2.0 s |
+| **`onnx-int8`** (default) | 0.997 | 92.1% / 97.1% | 10 ms | 0.8 s |
+| `onnx-int8-avx2` | 0.997 | 92.8% / 97.3% | 13 ms | 1.0 s |
+| `openvino` (float32) | 1.000 | 92.0% / 97.0% | 15 ms | 1.5 s |
+| `openvino-int8` | 0.994 | 91.4% / 96.4% | 11 ms | 3.3 s |
+
+Embed and cold start measured in isolation, one question at a time, 8 threads. Title questions are easier than real questions, so the accuracy columns compare encoders rather than measure absolute quality.
+**Limit:** int8 error grows with input length (similarity 0.95 on a 512-token text), so the int8 encoder is for questions only. Papers stay embedded at full precision.
+**At scale:** CPU encoding at ~10 ms keeps question embedding cheap without a GPU, and the small runtime makes new server processes start fast.
 
 ### FAISS with an HNSW index
 **Why:** a library, not a server. HNSW finds nearest neighbours in about 3 ms here instead of comparing against all 1M vectors, and FAISS exposes every setting (`M`, `efSearch`) so speed and accuracy can be tuned and measured.
