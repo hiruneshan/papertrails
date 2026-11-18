@@ -90,6 +90,27 @@ papertrail build-index
 
 Takes about 7 minutes on an i7-13620H and creates `index_hnsw.faiss` and `papers.duckdb` in `~/rag-data`.
 
+## Part 5b - Redis cache (optional)
+
+Redis caches question vectors and finished answers. Without it PaperTrail still works, it just never reuses anything.
+
+```bash
+sudo apt install -y redis-server        # needs sudo
+```
+
+No sudo? Build it in your home folder instead (needs `gcc` and `make`):
+
+```bash
+mkdir -p ~/redis-build && cd ~/redis-build
+curl -fsSL -o redis.tar.gz https://download.redis.io/redis-stable.tar.gz && tar xzf redis.tar.gz
+cd redis-stable && make -j8 MALLOC=libc          # the optional modules may fail to build; the server and CLI are enough
+mkdir -p ~/redis/bin ~/redis/data && cp src/redis-server src/redis-cli ~/redis/bin/
+```
+
+Config at `~/redis/redis.conf`: `bind 127.0.0.1`, `daemonize yes`, `maxmemory 256mb`, `maxmemory-policy allkeys-lru`, `save ""`. Start it with `~/redis/bin/redis-server ~/redis/redis.conf` (again after each WSL restart) and check with `~/redis/bin/redis-cli ping`.
+
+`papertrail cache-stats` shows what is cached; `papertrail cache-clear` empties it. Set `CACHE=off` in `.env` to run without it.
+
 ## Part 6 - Use it
 
 Each new terminal needs:
