@@ -34,6 +34,11 @@ HNSW_EF_SEARCH = 128
 # How many papers to retrieve and hand to Claude.
 TOP_K = 8
 
+# Hybrid search: run keyword (BM25) and vector search, merge with rank fusion. HYBRID=off for vector only.
+# HYBRID_CANDIDATES = how many papers each search contributes to the merge (more = better fusion, a little slower).
+HYBRID = os.environ.get("HYBRID", "on").strip().lower() in ("on", "1", "true", "yes")
+HYBRID_CANDIDATES = int(os.environ.get("HYBRID_CANDIDATES", "50"))
+
 # Which service writes the answers: "openrouter" (free models) or "anthropic" (Claude).
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "openrouter").strip().lower()
 

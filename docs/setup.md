@@ -65,6 +65,8 @@ Open `.env` and fill in one key:
 | `PAPERTRAIL_MODEL` | Claude model, e.g. `claude-opus-5-5` or the cheaper `claude-haiku-5-5` |
 | `PAPERTRAIL_DATA` | data folder, default `~/rag-data` |
 | `PAPERTRAIL_THREADS` | CPU threads, default 8 |
+| `HYBRID` | `on` (default): keyword + vector search merged; `off`: vector only |
+| `HYBRID_CANDIDATES` | papers each search contributes to the merge, default 50 |
 | `EMBED_BACKEND` | question encoder: `onnx-int8` (default), `onnx`, `openvino`, `onnx-int8-avx2`, `openvino-int8`, `torch` |
 
 `.env` is git-ignored. Never commit it or paste keys into chats.
@@ -88,7 +90,7 @@ This writes `~/rag-data/encoder/` (about 350 MB, all variants). To use the origi
 papertrail build-index
 ```
 
-Takes about 7 minutes on an i7-13620H and creates `index_hnsw.faiss` and `papers.duckdb` in `~/rag-data`.
+Takes about 7 minutes on an i7-13620H and creates `index_hnsw.faiss` and `papers.duckdb` in `~/rag-data`, then builds the keyword search for hybrid mode (about 4 more minutes; `papertrail build-fts` runs that part alone). If keyword search isn't built, PaperTrail says so and searches by meaning only.
 
 ## Part 5b - Redis cache (optional)
 
@@ -127,6 +129,7 @@ source ~/.venvs/papertrail/bin/activate
 | `papertrail ask "..." --category cs.CV --k 5` | Only one category; fewer papers |
 | `papertrail serve` | API at http://localhost:8000/docs; loads once, so each question skips the ~30 s startup |
 | `papertrail bench` | Times 10 fixed questions × 3 runs (no LLM quota) |
+| `papertrail eval --kind sentence` | Scores search quality: how often the right paper is found (vector, keyword, hybrid) |
 | `papertrail report` | Median time per stage for each logged change |
 | `papertrail log-change <label> "<what changed>"` | Records a change; later runs are tagged with it |
 

@@ -13,6 +13,55 @@ from .timing import Timer, log_run
 ADD_BATCH = 100_000
 
 
+def build_fts(timer: Timer | None = None) -> None:
+    """Build the keyword (BM25) search over title + abstract inside papers.duckdb.
+
+    Step 1, DuckDB's full-text extension tokenizes every paper into lowercase word stems
+    ("training" and "trained" both become "train"), drops common words ("the", "of"), and
+    records which paper contains which word.
+    Step 2, we turn that into a `postings` table sorted by word. For each (word, paper) it
+    stores that word's BM25 contribution (term frequency, normalized by the paper's length,
+    saturated with k1=1.2, b=0.75). A search then reads only the rows of the question's words
+    and adds them up, instead of scoring all 1M papers.
+    """
+    timer = timer or Timer()
+    if not config.DB.exists():
+        raise SystemExit(f"Missing {config.DB}. Run `papertrail build-index` first.")
+    con = duckdb.connect(str(config.DB))
+    con.execute("INSTALL fts")
+    con.execute("LOAD fts")
+    con.execute("PRAGMA memory_limit='4GB'")
+    start = time.time()
+    with timer.stage("build_fts"):
+        con.execute(
+            "PRAGMA create_fts_index('papers', 'row_id', 'title', 'abstract', "
+            "stemmer='porter', stopwords='english', ignore='(\\.|[^a-z])+', strip_accents=1, lower=1, overwrite=1)"
+        )
+    print(f"  keyword index: {time.time() - start:.0f} s", flush=True)
+
+    mid = time.time()
+    with timer.stage("build_postings"):
+        con.execute("DROP TABLE IF EXISTS postings")
+        con.execute("""
+            CREATE TABLE postings AS
+            WITH tf AS (  -- how often each word occurs in each field (title / abstract) of each paper
+                SELECT termid, docid, fieldid, count(*) AS tf FROM fts_main_papers.terms GROUP BY ALL),
+            norm AS (     -- divide by how long that field is compared with the average (longer = weaker signal)
+                SELECT tf.termid, tf.docid,
+                       tf.tf / (0.25 + 0.75 * list_extract(d.field_lens, tf.fieldid + 1)
+                                            / list_extract(st.avg_field_lens, tf.fieldid + 1)) AS ntf
+                FROM tf JOIN fts_main_papers.docs d USING (docid) CROSS JOIN fts_main_papers.stats st),
+            pseudo AS (SELECT termid, docid, sum(ntf) AS ptf FROM norm GROUP BY termid, docid)
+            SELECT termid, docid, CAST(ptf * 2.2 / (ptf + 1.2) AS FLOAT) AS w   -- saturation: k1 = 1.2
+            FROM pseudo ORDER BY termid, docid                                  -- sorted by word: lookups skip the rest
+        """)
+    rows = con.execute("SELECT count(*) FROM postings").fetchone()[0]
+    con.close()
+    print(f"  postings table: {rows:,} rows in {time.time() - mid:.0f} s")
+    print(f"built keyword search in {time.time() - start:.0f} s; database is now {config.DB.stat().st_size / 1e6:.0f} MB")
+    log_run("build-fts", timer)
+
+
 def build() -> None:
     timer = Timer()
     for path in (config.VECTORS, config.PAPERS):
@@ -59,3 +108,4 @@ def build() -> None:
         faiss.write_index(index, str(config.INDEX))
     print(f"wrote index to {config.INDEX} in {(time.time() - start) / 60:.1f} min")
     log_run("build-index", timer, vectors=n, index_mb=round(config.INDEX.stat().st_size / 1e6))
+    build_fts()  # the table was recreated above, so the keyword index must be rebuilt

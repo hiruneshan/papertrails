@@ -15,7 +15,7 @@ BENCH_FILE = Path(__file__).resolve().parent.parent / "bench" / "questions.txt"
 
 def _print_papers(papers: list[dict]) -> None:
     for i, p in enumerate(papers, 1):
-        print(f"{i}. [{p['score']:.3f}] {p['title']}")
+        print(f"{i}. [{p['score']:.4f} {p['found_by']}] {p['title']}")
         print(f"   {p['url']}  ({p['categories']}, {p['update_date']})")
 
 
@@ -35,6 +35,13 @@ def build_index():
     """Build the FAISS index and DuckDB table from vectors.npy + papers.parquet."""
     from .index import build
     build()
+
+#BM25 + vectors search 
+@app.command("build-fts")
+def build_fts_cmd():
+    """Build only the keyword (BM25) index in papers.duckdb (build-index also does this)."""
+    from .index import build_fts
+    build_fts()
 
 
 @app.command()
@@ -121,13 +128,17 @@ def bench(
 @app.command()
 def report(command: str = typer.Option(None, help="Only this command, e.g. bench-query or ask")):
     """Compare timings across labels (changes): median milliseconds per stage."""
-    runs = [r for r in load_runs() if not command or r["command"] == command]
+    all_runs = load_runs()
+    runs = [r for r in all_runs if r["command"] != "eval" and (not command or r["command"] == command)]
+    evals = [r for r in all_runs if r["command"] == "eval"]
     if not runs:
         print("No runs logged yet.")
         return
     groups: dict[tuple, list[dict]] = {}
     for r in runs:
         cmd = r["command"]
+        if r.get("settings", {}).get("hybrid") is False:  # runs made with HYBRID=off, kept apart from hybrid runs
+            cmd += " vec-only"
         if "answer_cache_hit" in r:
             cmd += " hit" if r["answer_cache_hit"] else " miss"
         elif r.get("qvec_cache_hit"):
@@ -135,9 +146,11 @@ def report(command: str = typer.Option(None, help="Only this command, e.g. bench
         groups.setdefault((r["label"], cmd), []).append(r)
     stages = [s for s in STAGE_ORDER if any(s in r["stages_ms"] for r in runs)]
     short = {"import_libs": "import", "load_model": "model", "load_index": "index", "open_db": "db",
-             "qvec_cache": "qcache", "embed_query": "embed", "vector_search": "search", "db_lookup": "lookup",
+             "qvec_cache": "qcache", "embed_query": "embed", "vector_search": "vsearch", "keyword_search": "ksearch",
+             "fusion": "fusion", "db_lookup": "lookup",
              "answer_cache": "acache", "answer_wait": "await", "llm": "llm",
-             "load_vectors": "loadvec", "write_db": "writedb", "build_hnsw": "hnsw", "save_index": "save"}
+             "load_vectors": "loadvec", "write_db": "writedb", "build_hnsw": "hnsw", "save_index": "save",
+             "build_fts": "bfts", "build_postings": "bpost"}
     header = f"{'label':22s} {'command':16s} {'runs':>4s} " + " ".join(f"{short.get(s, s)[:8]:>8s}" for s in stages) + f" {'total':>9s}"
     print("median time per stage (ms)\n" + header + "\n" + "-" * len(header))
     for (label, cmd), rs in groups.items():
@@ -147,6 +160,34 @@ def report(command: str = typer.Option(None, help="Only this command, e.g. bench
             cells.append(f"{statistics.median(vals):8.0f}" if vals else f"{'-':>8s}")
         total = statistics.median(r["total_ms"] for r in rs)
         print(f"{label[:22]:22s} {cmd[:16]:16s} {len(rs):4d} " + " ".join(cells) + f" {total:9.0f}")
+
+    if evals and not command:
+        latest: dict[tuple, dict] = {}
+        for r in evals:  # the most recent eval of each label / question type / mode
+            latest[(r["label"], r["kind"], r["mode"])] = r
+        print("\nsearch quality (papertrail eval; right paper found from a question made out of it)")
+        print(f"{'label':22s} {'questions':10s} {'mode':8s} {'1st':>7s} {'top 10':>7s} {'MRR':>6s}")
+        for (label, kind, mode), r in latest.items():
+            print(f"{label[:22]:22s} {r['queries']:>4d} {kind:5s} {mode:8s} {r['recall@1']:7.1%} {r['recall@10']:7.1%} {r['mrr']:6.3f}")
+
+
+@app.command("eval")
+def eval_cmd(
+    queries: int = typer.Option(500, help="How many papers to turn into test questions"),
+    kind: str = typer.Option("sentence", help="title or sentence (a sentence from the abstract; harder)"),
+    modes: str = typer.Option("vector,keyword,hybrid", help="Comma-separated search modes to compare"),
+):
+    """Score search quality: how often is the right paper found? (logged under the current label)"""
+    from .evaluate import evaluate
+    timer = Timer()
+    retriever = _load_retriever(timer)
+    mode_list = [m.strip() for m in modes.split(",")]
+    results = evaluate(retriever, kind, queries, mode_list)
+    print(f"{queries} {kind} questions, label '{current_label()}'\n")
+    print(f"{'mode':10s} {'right paper 1st':>16s} {'in top 10':>10s} {'MRR':>7s} {'median ms':>10s} {'p95 ms':>8s}")
+    for mode, r in results.items():
+        print(f"{mode:10s} {r['recall@1']:16.1%} {r['recall@10']:10.1%} {r['mrr']:7.3f} {r['median_ms']:10.0f} {r['p95_ms']:8.0f}")
+        log_run("eval", Timer(), kind=kind, queries=queries, mode=mode, **{k: round(v, 4) for k, v in r.items()})
 
 
 @app.command("log-change")

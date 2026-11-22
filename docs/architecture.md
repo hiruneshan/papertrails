@@ -31,12 +31,16 @@ flowchart TB
   subgraph QUERY["Laptop - every question"]
     direction LR
     Q["question"] --> QE["5 · embed question<br/>same model, ONNX int8"]
-    QE --> SR["6 · nearest-neighbour<br/>search"]
-    SR --> LK["7 · look up<br/>title + abstract"]
+    QE --> SR["6 · vector search<br/>nearest neighbours"]
+    Q --> KS["6 · keyword search<br/>BM25"]
+    SR --> FU["6 · merge<br/>rank fusion"]
+    KS --> FU
+    FU --> LK["7 · look up<br/>title + abstract"]
     LK --> LLM["8 · LLM writes answer<br/>with [arXiv:id] citations"]
   end
 
   FAISS -.-> SR
+  DUCK -.-> KS
   DUCK -.-> LK
 ```
 
@@ -49,9 +53,9 @@ flowchart TB
 | 1 · Ingest | Kaggle | Stream the 4–5 GB JSON snapshot line by line; keep papers with any `cs.*` category; write in batches of 100k | 11 Parquet files, 1,045,061 papers |
 | 2 · Clean | Kaggle | Collapse whitespace, drop empty, short and withdrawn abstracts, drop exact duplicates, count tokens | `clean.parquet`, 1,044,349 papers |
 | 3 · Embed | Kaggle | Turn each `title + abstract` into 384 numbers, in shards of 100k (finished shards are skipped on rerun) | `vectors.npy`, `papers.parquet` |
-| 4 · Build index | Laptop | Link every vector to its nearest neighbours (HNSW); load paper text into DuckDB | `index_hnsw.faiss`, `papers.duckdb` |
+| 4 · Build index | Laptop | Link every vector to its nearest neighbours (HNSW); load paper text into DuckDB; build the keyword (BM25) word lists inside the same database (`papertrail build-fts`) | `index_hnsw.faiss`, `papers.duckdb` |
 | 5 · Embed question | Laptop | Same model, run with ONNX Runtime as int8, with bge's query prefix | 384 numbers |
-| 6 · Search | Laptop | Walk the HNSW graph to the 8 closest papers | row numbers + similarity scores |
+| 6 · Search | Laptop | Hybrid: (a) vector search walks the HNSW graph for the 50 closest papers by meaning; (b) keyword search (BM25) finds the 50 papers whose words best match the question; (c) rank fusion merges the two lists and keeps the best 8 | row numbers + fused scores |
 | 7 · Look up | Laptop | Fetch those rows' text from DuckDB; optional category filter | 8 papers |
 | 8 · Answer | Internet | Send instructions + 8 abstracts + question to the LLM | cited answer |
 
@@ -132,6 +136,19 @@ Embed and cold start measured in isolation, one question at a time, 8 threads. T
 **Limit:** int8 error grows with input length (similarity 0.95 on a 512-token text), so the int8 encoder is for questions only. Papers stay embedded at full precision.
 **At scale:** CPU encoding at ~10 ms keeps question embedding cheap without a GPU, and the small runtime makes new server processes start fast.
 
+### Hybrid search: BM25 keywords + vectors, merged with rank fusion
+**Why:** vectors find papers about the same *meaning* but are fuzzy on exact names, acronyms and method names; keyword search is exact but blind to meaning. Production search systems run both and merge the lists. Merging uses *reciprocal rank fusion*: each paper earns `1 / (60 + position)` from every list it appears in, so only positions matter and the two scoring scales never need aligning.
+**How it is built:** DuckDB's full-text extension tokenizes and stems every title and abstract. Its built-in `match_bm25` took 0.65–1.2 s per question because it scores all 1M papers. `papertrail build-fts` therefore also writes a `postings` table sorted by word (75.3M rows: word, paper, precomputed BM25 weight), so a question reads only the postings of its own words. Result: the same ranking as the built-in function (checked on 7 queries: identical top-50 sets and top-10 order) in about 20–90 ms. Costs 0.8 GB of extra database size and about 4 minutes to build.
+**Measured** (`papertrail eval`, 500 papers turned into questions; right paper in the top 10, no cache):
+
+| Question made from | Vector only | Keyword only | Hybrid |
+| --- | --- | --- | --- |
+| a sentence of the abstract | 53.8% | 99.2% | 95.4% |
+| the paper's title | 98.0% | 99.8% | 100.0% |
+
+These tests are biased toward keyword search, because each question contains the paper's own words; real questions are phrased differently from abstracts. They show that hybrid keeps a paper with matching words from being missed (and loses nothing on titles); they do not show how much hybrid improves real questions. Hybrid also ranks the right paper *first* less often than keyword-only on the sentence test (51.0% against 97.0%), because the vector list dilutes it; all 8 results go to the LLM, so the top-10 figure matters more here. Latency: about +100–160 ms per question for the keyword step (median of 30 benchmark runs; measured while the machine was running slowly, so likely an upper bound).
+**At scale:** the postings table is sorted by word, so a query's cost follows the number of papers containing its words, not the corpus size; very common words (such as "model") are the slow part. At tens of millions of papers this moves into a search engine (Elasticsearch/OpenSearch, or a vector database with built-in hybrid search) that skips low-scoring documents early.
+
 ### FAISS with an HNSW index
 **Why:** a library, not a server. HNSW finds nearest neighbours in about 3 ms here instead of comparing against all 1M vectors, and FAISS exposes every setting (`M`, `efSearch`) so speed and accuracy can be tuned and measured.
 **At scale:** HNSW keeps every full vector in memory, about 1.8 GB per million papers here, so 10M papers would need about 18 GB of RAM. The next steps are compressed vectors (int8 or product quantization, which FAISS supports) to cut memory several times, and later a vector database such as Qdrant when filtering, updates or several servers matter.
@@ -153,6 +170,8 @@ Embed and cold start measured in isolation, one question at a time, 8 threads. T
 **At scale:** the same records become monitoring: per-stage latency over time, and alerts when a stage slows down.
 
 ## Known limits
+
+- Hybrid search is only evidenced on test questions built from the papers themselves; there is no set of real questions with known right papers yet.
 
 - Answers use **abstracts only**, not full papers. Questions about specific experiments or numbers inside a paper can't be answered.
 - The category filter runs after the search (it fetches 80 candidates and keeps matches), so rare categories can return fewer than 8 papers.
