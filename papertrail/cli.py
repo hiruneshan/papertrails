@@ -216,6 +216,60 @@ def cache_clear():
     print(f"deleted {cache.clear()} keys")
 
 
+feedback_app = typer.Typer(help="User ratings and their three-model reviews.", no_args_is_help=True)
+app.add_typer(feedback_app, name="feedback")
+
+
+@feedback_app.command("list")
+def feedback_list():
+    """Reviews, the ones waiting for you first."""
+    from . import feedback
+    print(", ".join(f"{k} {v}" for k, v in feedback.counts().items()))
+    for r in feedback.list_reviews():
+        decided = f", you: {r['human_decision']}" if r["human_decision"] else ""
+        print(f"#{r['id']:<4d}{r['status']:12s} {r['downvoters']} down  {str(r['action'] or '-')[:40]:40s}{decided}  {r['question'][:60]}")
+
+
+@feedback_app.command("show")
+def feedback_show(review_id: int):
+    """Everything about one review: question, answer, ratings, and what each model said."""
+    import json
+    from . import feedback
+    data = feedback.get_review(review_id)
+    if not data:
+        raise typer.Exit(print(f"no review {review_id}") or 1)
+    clean = lambda s: "".join(c for c in str(s) if c.isprintable() or c == "\n")  # no terminal control codes
+    review, answer = data["review"], data["answer"]
+    print(f"Review #{review_id}: {review['status']}  action: {review['action']}")
+    print(f"\nQuestion: {clean(answer['question'])}\n\nAnswer:\n{clean(answer['answer'])}\n\nRatings:")
+    for f in data["feedback"]:
+        print("  " + clean(json.dumps({k: v for k, v in f.items() if v not in (None, "", "[]", "{}")})))
+    if review["report"]:
+        report = json.loads(review["report"])
+        print("\n" + clean(json.dumps(report, indent=2)))
+
+
+@feedback_app.command("run")
+def feedback_run(limit: int = typer.Option(5, help="How many queued reviews to run")):
+    """Run queued reviews now (also retries failed ones)."""
+    from . import agents
+    print(f"requeued {agents.requeue_failed()}")
+    for result in agents.process_pending(limit):
+        print(result)
+
+
+@feedback_app.command("decide")
+def feedback_decide(review_id: int, decision: str = typer.Argument(..., help="confirmed, rejected or unclear"),
+                    note: str = typer.Option("", help="Why")):
+    """Record your own verdict; it closes the review."""
+    from . import feedback
+    try:
+        feedback.decide(review_id, decision, note)
+    except feedback.FeedbackError as e:
+        raise typer.Exit(print(e) or 1)
+    print(f"review #{review_id} closed as {decision}")
+
+
 @app.command()
 def serve(port: int = 8000):
     """Start the API and chat UI at http://localhost:PORT (API docs at /docs)."""

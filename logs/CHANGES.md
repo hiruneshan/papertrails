@@ -48,3 +48,8 @@ Each change gets a label; every run after it is tagged with that label in runs.j
 - `papertrail eval`, 200 questions each, right paper first: sentences 45.0% -> 96.0%, titles 93.5% -> 99.0%; search 0.1 s -> 1.5-1.7 s.
 - Blind LLM grading on 12 real questions (top 8): directly relevant 69.8% -> 67.7%, irrelevant 10.4% -> 4.2%, mean grade 1.59 -> 1.64; better on 6, worse on 4. Within noise.
 - 40 tests pass.
+
+**User feedback with three-model review** (2026-11-26) - see docs/feedback.md
+- Thumbs, 1-5 rating, reasons and comment on the chat page; stored in ~/rag-data/feedback.db.
+- Negative ratings: analyst -> reviewer -> actor (three different free models); code limits actions, the only automatic change is deleting one cached answer.
+- 69 tests pass. Real-model check (one run each): correct answer left alone, planted false claims caught and evicted.

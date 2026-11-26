@@ -72,3 +72,13 @@ RERANK_CANDIDATES = int(os.environ.get("RERANK_CANDIDATES", "40"))  # how many p
 RERANK_BATCH = int(os.environ.get("RERANK_BATCH", "4"))
 RERANK_THREADS = int(os.environ.get("RERANK_THREADS", str(CPU_THREADS)))
 RERANKER_DIR = DATA_DIR / "reranker"
+
+# User feedback and its three-model review (see papertrail/agents.py).
+FEEDBACK_DB = Path(os.environ.get("FEEDBACK_DB", str(DATA_DIR / "feedback.db"))).expanduser()
+FEEDBACK_REVIEW = os.environ.get("FEEDBACK_REVIEW", "on").strip().lower() in ("on", "1", "true", "yes")
+FEEDBACK_PER_HOUR = int(os.environ.get("FEEDBACK_PER_HOUR", "30"))      # new ratings per visitor / address
+FEEDBACK_DAILY_REVIEWS = int(os.environ.get("FEEDBACK_DAILY_REVIEWS", "10"))  # each review uses up to 3 LLM calls
+_free = LLM_PROVIDER == "openrouter"  # use different models so one model's blind spot isn't repeated
+ANALYST_MODEL = os.environ.get("ANALYST_MODEL", "baidu/ernie-5.5-flash-preview:free" if _free else CLAUDE_MODEL)
+REVIEWER_MODEL = os.environ.get("REVIEWER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free" if _free else CLAUDE_MODEL)
+ACTOR_MODEL = os.environ.get("ACTOR_MODEL", "nvidia/nemotron-3.5-lightning:free" if _free else CLAUDE_MODEL)

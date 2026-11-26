@@ -68,6 +68,91 @@ def answer(question: str, papers: list[dict], client=None, timer: Timer | None =
     return text
 
 
+def answer_stream(question: str, papers: list[dict], client=None, timer: Timer | None = None):
+    """Like answer(), but yields the text in pieces as the LLM writes it. Usage and errors land in timer.info."""
+    if not papers:
+        yield "No matching papers were found, so there is nothing to answer from."
+        return
+
+    timer = timer or Timer()
+    client = client or make_client()
+    user_message = f"<papers>\n{_format_papers(papers)}\n</papers>\n\nQuestion: {question}"
+
+    with timer.stage("llm"):
+        if config.LLM_PROVIDER == "openrouter":
+            yield from _stream_openrouter(client, user_message, timer.info)
+        else:
+            yield from _stream_claude(client, user_message, timer.info)
+
+
+def _stream_openrouter(client, user_message: str, info: dict):
+    import openai
+    try:
+        stream = client.chat.completions.create(
+            model=config.OPENROUTER_MODEL,
+            max_tokens=4000,
+            stream=True,
+            stream_options={"include_usage": True},
+            messages=[
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": user_message},
+            ],
+        )
+        got_text, finish = False, None
+        for chunk in stream:
+            if chunk.usage:
+                info.update(input_tokens=chunk.usage.prompt_tokens, output_tokens=chunk.usage.completion_tokens)
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            finish = choice.finish_reason or finish
+            if choice.delta and choice.delta.content:
+                got_text = True
+                yield choice.delta.content
+    except openai.RateLimitError:
+        info["llm_error"] = "rate_limit"
+        yield (f"[{config.OPENROUTER_MODEL} is busy or you've hit today's free limit. "
+               "Wait a minute and retry, or set another :free model as OPENROUTER_MODEL in .env.]")
+        return
+    except openai.AuthenticationError:
+        info["llm_error"] = "auth"
+        yield "[OpenRouter rejected the API key. Check OPENROUTER_API_KEY in .env.]"
+        return
+    except (openai.NotFoundError, openai.PermissionDeniedError):
+        info["llm_error"] = "unavailable"
+        yield f"[{config.OPENROUTER_MODEL} isn't available. Pick another :free model for OPENROUTER_MODEL in .env.]"
+        return
+    if not got_text:
+        info["llm_error"] = "empty"
+        yield "The model returned an empty answer. Try again or pick another OPENROUTER_MODEL."
+    elif finish == "length":
+        yield "\n\n[answer cut off at the length limit]"
+
+
+def _stream_claude(client: anthropic.Anthropic, user_message: str, info: dict):
+    request = dict(
+        model=config.CLAUDE_MODEL,
+        max_tokens=16000,
+        system=SYSTEM,
+        output_config={"effort": "medium"},
+        messages=[{"role": "user", "content": user_message}],
+    )
+    if config.CLAUDE_MODEL in _FALLBACK_MODELS:
+        manager = client.beta.messages.stream(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **request)
+    else:
+        manager = client.messages.stream(**request)
+    with manager as stream:
+        for text in stream.text_stream:
+            yield text
+        final = stream.get_final_message()
+    info.update(input_tokens=final.usage.input_tokens, output_tokens=final.usage.output_tokens)
+    if final.stop_reason == "refusal":
+        info["llm_error"] = "refusal"
+        yield "\n\n[The model declined to answer this question.]"
+    elif final.stop_reason == "max_tokens":
+        yield "\n\n[answer cut off at the length limit]"
+
+
 def _answer_openrouter(client, user_message: str) -> tuple[str, dict]:
     import openai
     try:

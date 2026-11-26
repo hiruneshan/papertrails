@@ -23,6 +23,7 @@ Sources:
 
 - [Architecture](docs/architecture.md) - system design, measured timings, and why each component was chosen
 - [Setup](docs/setup.md) - what you need, how to build it, and how to run it
+- [Feedback](docs/feedback.md) - ratings and the three-model review
 
 ## Quick start
 

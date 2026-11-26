@@ -125,6 +125,18 @@ def put_answer(key: str, answer: str, llm_model: str) -> None:
         _failed()
 
 
+def delete(key: str) -> bool:
+    """Remove one cached entry (used when a review finds a cached answer is misleading)."""
+    r = _redis()
+    if r is None:
+        return False
+    try:
+        return bool(r.delete(key))
+    except Exception:
+        _failed()
+        return False
+
+
 # ---------- lock: one LLM call per identical question at a time ----------
 
 def acquire_lock(key: str, seconds: int = 120) -> bool:
