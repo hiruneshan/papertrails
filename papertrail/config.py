@@ -63,3 +63,12 @@ QVEC_TTL_DAYS = int(os.environ.get("QVEC_TTL_DAYS", "90"))
 
 # Bump when the LLM instructions in generate.py change, so old cached answers stop matching.
 PROMPT_VERSION = 1
+
+# Reranker: a cross-encoder re-sorts the best search candidates before the top ones go to the LLM.
+# RERANK=on|off. RERANK_MODEL=minilm (small, fast) or bge (larger). Files from scripts/export_reranker.py.
+RERANK = os.environ.get("RERANK", "off").strip().lower() in ("on", "1", "true", "yes")
+RERANK_MODEL = os.environ.get("RERANK_MODEL", "minilm")
+RERANK_CANDIDATES = int(os.environ.get("RERANK_CANDIDATES", "40"))  # how many papers the reranker reads
+RERANK_BATCH = int(os.environ.get("RERANK_BATCH", "4"))
+RERANK_THREADS = int(os.environ.get("RERANK_THREADS", str(CPU_THREADS)))
+RERANKER_DIR = DATA_DIR / "reranker"

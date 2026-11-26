@@ -1,9 +1,11 @@
-"""Step 9: a small HTTP API. Run with `papertrail serve`, then open http://localhost:8000/docs."""
+"""Step 9: a small HTTP API. Run with `papertrail serve`, then open http://localhost:8000 (chat UI) or /docs."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import anthropic
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import cache, config
@@ -37,6 +39,12 @@ class AskRequest(BaseModel):
 
 def _timing(timer: Timer) -> dict:
     return {s: round(v * 1000, 1) for s, v in timer.stages.items()} | {"total": round(timer.total() * 1000, 1)}
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    """The chat UI: one static page that calls /ask."""
+    return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
 @app.get("/health")

@@ -28,8 +28,8 @@ _lock = threading.Lock()
 
 # Stages in pipeline order (used for display).
 STAGE_ORDER = [
-    "import_libs", "load_model", "load_index", "open_db",                       # startup
-    "qvec_cache", "embed_query", "vector_search", "keyword_search", "fusion", "db_lookup",  # per question: search
+    "import_libs", "load_model", "load_index", "open_db", "load_reranker",      # startup
+    "qvec_cache", "embed_query", "vector_search", "keyword_search", "fusion", "db_lookup", "rerank",  # per question: search
     "answer_cache", "answer_wait", "llm",                                       # per question: answer
     "load_vectors", "write_db", "build_hnsw", "save_index",                     # build-index
     "build_fts", "build_postings",                                              # build-fts
@@ -85,6 +85,9 @@ def settings() -> dict:
         "top_k": config.TOP_K,
         "hybrid": config.HYBRID,
         "hybrid_candidates": config.HYBRID_CANDIDATES,
+        "rerank": config.RERANK,
+        "rerank_model": config.RERANK_MODEL,
+        "rerank_candidates": config.RERANK_CANDIDATES,
         "hnsw_m": config.HNSW_M,
         "hnsw_ef_construction": config.HNSW_EF_CONSTRUCTION,
         "hnsw_ef_search": config.HNSW_EF_SEARCH,

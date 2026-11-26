@@ -15,7 +15,8 @@ BENCH_FILE = Path(__file__).resolve().parent.parent / "bench" / "questions.txt"
 
 def _print_papers(papers: list[dict]) -> None:
     for i, p in enumerate(papers, 1):
-        print(f"{i}. [{p['score']:.4f} {p['found_by']}] {p['title']}")
+        moved = f", was #{p['search_rank']}" if "search_rank" in p else ""
+        print(f"{i}. [{p['score']:.4f} {p['found_by']}{moved}] {p['title']}")
         print(f"   {p['url']}  ({p['categories']}, {p['update_date']})")
 
 
@@ -147,7 +148,7 @@ def report(command: str = typer.Option(None, help="Only this command, e.g. bench
     stages = [s for s in STAGE_ORDER if any(s in r["stages_ms"] for r in runs)]
     short = {"import_libs": "import", "load_model": "model", "load_index": "index", "open_db": "db",
              "qvec_cache": "qcache", "embed_query": "embed", "vector_search": "vsearch", "keyword_search": "ksearch",
-             "fusion": "fusion", "db_lookup": "lookup",
+             "fusion": "fusion", "db_lookup": "lookup", "rerank": "rerank", "load_reranker": "rrload",
              "answer_cache": "acache", "answer_wait": "await", "llm": "llm",
              "load_vectors": "loadvec", "write_db": "writedb", "build_hnsw": "hnsw", "save_index": "save",
              "build_fts": "bfts", "build_postings": "bpost"}
@@ -166,16 +167,17 @@ def report(command: str = typer.Option(None, help="Only this command, e.g. bench
         for r in evals:  # the most recent eval of each label / question type / mode
             latest[(r["label"], r["kind"], r["mode"])] = r
         print("\nsearch quality (papertrail eval; right paper found from a question made out of it)")
-        print(f"{'label':22s} {'questions':10s} {'mode':8s} {'1st':>7s} {'top 10':>7s} {'MRR':>6s}")
+        print(f"{'label':22s} {'questions':10s} {'mode':14s} {'1st':>7s} {'top 10':>7s} {'MRR':>6s}")
         for (label, kind, mode), r in latest.items():
-            print(f"{label[:22]:22s} {r['queries']:>4d} {kind:5s} {mode:8s} {r['recall@1']:7.1%} {r['recall@10']:7.1%} {r['mrr']:6.3f}")
+            print(f"{label[:22]:22s} {r['queries']:>4d} {kind:5s} {mode:14s} {r['recall@1']:7.1%} {r['recall@10']:7.1%} {r['mrr']:6.3f}")
 
 
 @app.command("eval")
 def eval_cmd(
     queries: int = typer.Option(500, help="How many papers to turn into test questions"),
     kind: str = typer.Option("sentence", help="title or sentence (a sentence from the abstract; harder)"),
-    modes: str = typer.Option("vector,keyword,hybrid", help="Comma-separated search modes to compare"),
+    modes: str = typer.Option("vector,keyword,hybrid", help="Comma-separated search modes to compare; add "
+                                                           "+rerank to one, e.g. hybrid,hybrid+rerank"),
 ):
     """Score search quality: how often is the right paper found? (logged under the current label)"""
     from .evaluate import evaluate
@@ -184,9 +186,9 @@ def eval_cmd(
     mode_list = [m.strip() for m in modes.split(",")]
     results = evaluate(retriever, kind, queries, mode_list)
     print(f"{queries} {kind} questions, label '{current_label()}'\n")
-    print(f"{'mode':10s} {'right paper 1st':>16s} {'in top 10':>10s} {'MRR':>7s} {'median ms':>10s} {'p95 ms':>8s}")
+    print(f"{'mode':14s} {'right paper 1st':>16s} {'in top 10':>10s} {'MRR':>7s} {'median ms':>10s} {'p95 ms':>8s}")
     for mode, r in results.items():
-        print(f"{mode:10s} {r['recall@1']:16.1%} {r['recall@10']:10.1%} {r['mrr']:7.3f} {r['median_ms']:10.0f} {r['p95_ms']:8.0f}")
+        print(f"{mode:14s} {r['recall@1']:16.1%} {r['recall@10']:10.1%} {r['mrr']:7.3f} {r['median_ms']:10.0f} {r['p95_ms']:8.0f}")
         log_run("eval", Timer(), kind=kind, queries=queries, mode=mode, **{k: round(v, 4) for k, v in r.items()})
 
 
@@ -216,7 +218,7 @@ def cache_clear():
 
 @app.command()
 def serve(port: int = 8000):
-    """Start the API at http://localhost:PORT (docs at /docs)."""
+    """Start the API and chat UI at http://localhost:PORT (API docs at /docs)."""
     import uvicorn
     uvicorn.run("papertrail.api:app", host="127.0.0.1", port=port)
 

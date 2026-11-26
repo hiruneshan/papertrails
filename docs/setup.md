@@ -84,6 +84,14 @@ python3 -m venv ~/.venvs/papertrail-export
 
 This writes `~/rag-data/encoder/` (about 350 MB, all variants). To use the original PyTorch encoder instead, set `EMBED_BACKEND=torch` in `.env`.
 
+### Reranker (optional)
+
+```bash
+~/.venvs/papertrail-export/bin/python scripts/export_reranker.py minilm     # add "bge" for the larger model (1.4 GB)
+```
+
+Then set `RERANK=on` in `.env`. See [reranking.md](reranking.md).
+
 ## Part 5 - Build the index (once)
 
 ```bash

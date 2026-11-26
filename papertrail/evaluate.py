@@ -42,11 +42,12 @@ def evaluate(retriever: Retriever, kind: str, n: int, modes: list[str]) -> dict[
             "SELECT row_id, id FROM papers WHERE row_id IN (SELECT unnest(?))", [[r for r, _ in questions]]).fetchall())
         results = {}
         for mode in modes:
-            retriever.search("warm up", 1, mode=mode)
+            base, rerank = mode.removesuffix("+rerank"), mode.endswith("+rerank")  # e.g. "hybrid+rerank"
+            retriever.search("warm up", 1, mode=base, rerank=rerank)
             ranks, times = [], []
             for row_id, text in questions:
                 start = time.perf_counter()
-                found = retriever.search(text, 10, None, Timer(), mode=mode)
+                found = retriever.search(text, 10, None, Timer(), mode=base, rerank=rerank)
                 times.append((time.perf_counter() - start) * 1000)
                 found_ids = [p["id"] for p in found]
                 ranks.append(found_ids.index(ids[row_id]) + 1 if ids[row_id] in found_ids else None)

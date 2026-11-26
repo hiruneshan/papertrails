@@ -4,6 +4,9 @@ Three ways to search (mode):
   vector   nearest neighbours by meaning (FAISS)
   keyword  papers containing the question's words, ranked by BM25 (DuckDB postings table)
   hybrid   both, merged with reciprocal rank fusion
+
+With reranking on (RERANK=on), whichever mode is used shortlists RERANK_CANDIDATES papers and a
+cross-encoder re-sorts them before the best k are returned.
 """
 
 import duckdb
@@ -13,6 +16,7 @@ import numpy as np
 from . import cache, config
 from .encoder import load_encoder
 from .fusion import rrf
+from .reranker import Reranker
 from .timing import Timer
 
 # BM25 over the postings table built by `papertrail build-fts`. The stored weight w already holds each
@@ -49,6 +53,10 @@ class Retriever:
         with timer.stage("open_db"):
             self.db = duckdb.connect(str(config.DB), read_only=True)
             self.has_keyword = self._load_keyword_search()
+        self.reranker = None
+        if config.RERANK:
+            with timer.stage("load_reranker"):
+                self.reranker = Reranker()
 
     def _load_keyword_search(self) -> bool:
         try:
@@ -87,11 +95,14 @@ class Retriever:
         return qv
 
     def search(self, question: str, k: int = config.TOP_K, category: str | None = None,
-               timer: Timer | None = None, mode: str | None = None) -> list[dict]:
+               timer: Timer | None = None, mode: str | None = None, rerank: bool | None = None) -> list[dict]:
         timer = timer or Timer()
         mode = self._mode(mode)
+        rerank = config.RERANK if rerank is None else rerank
         # Fetch extra when filtering by category, since some hits will be filtered out.
         want = k * 10 if category else k
+        if rerank:  # the reranker needs a wider shortlist to choose from
+            want = max(want, config.RERANK_CANDIDATES)
         # Hybrid reads a wider list from each search, so fusion can reward papers that rank well in both.
         depth = max(config.HYBRID_CANDIDATES, want) if mode == "hybrid" else want
 
@@ -139,5 +150,15 @@ class Retriever:
                 df = df[keep]
             df["url"] = "https://arxiv.org/abs/" + df["id"]
             df["update_date"] = df["update_date"].astype(str)
-            results = df.drop(columns="row_id").head(k).to_dict("records")
-        return results
+
+        # 3. Optional: the cross-encoder reads the question with each shortlisted paper and re-sorts them.
+        if rerank and len(df):
+            if self.reranker is None:
+                with timer.stage("load_reranker"):
+                    self.reranker = Reranker()
+            with timer.stage("rerank"):
+                df = df.head(config.RERANK_CANDIDATES).copy()
+                df["search_rank"] = np.arange(1, len(df) + 1)  # position before reranking
+                df["score"] = self.reranker.score(question, (df["title"] + "\n\n" + df["abstract"]).tolist())
+                df = df.sort_values("score", ascending=False, kind="stable")
+        return df.drop(columns="row_id").head(k).to_dict("records")

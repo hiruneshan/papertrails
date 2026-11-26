@@ -143,3 +143,11 @@
 2026-11-21 09:47:48 | v3-hybrid-search | search | total 123.0s | import_libs 621ms, load_model 2.8s, load_index 106.6s, open_db 3.0s, qvec_cache 4.2s, vector_search 208ms, keyword_search 488ms, fusion 1ms, db_lookup 3.5s | "Raft consensus"
 2026-11-21 09:51:03 | v3-hybrid-search | search | total 87.2s | import_libs 1.4s, load_model 5.2s, load_index 73.2s, open_db 1.7s, qvec_cache 1.8s, vector_search 138ms, keyword_search 446ms, fusion 1ms, db_lookup 2.7s | "Raft consensus"
 2026-11-21 09:52:08 | v3-hybrid-search | search | total 59.5s | import_libs 1.6s, load_model 3.9s, load_index 49.6s, open_db 886ms, qvec_cache 854ms, vector_search 32ms, keyword_search 195ms, fusion 0ms, db_lookup 1.7s | "Raft consensus"
+2026-11-26 13:44:45 | v3-hybrid-search | api-startup | total 14.5s | load_model 961ms, load_index 11.1s, open_db 1.0s
+2026-11-26 14:38:02 | v3-hybrid-search | search | total 10.7s | import_libs 303ms, load_model 508ms, load_index 6.6s, open_db 105ms, load_reranker 279ms, qvec_cache 300ms, embed_query 17ms, vector_search 4ms, keyword_search 144ms, fusion 0ms, db_lookup 668ms, rerank 1.5s | "How can we defend large language models against prompt injection?"
+2026-11-26 14:45:02 | v4-reranker | eval | total 0ms | 
+2026-11-26 14:45:02 | v4-reranker | eval | total 0ms | 
+2026-11-26 14:50:48 | v4-reranker | eval | total 0ms | 
+2026-11-26 14:50:49 | v4-reranker | eval | total 0ms | 
+2026-11-26 15:07:18 | v4-reranker | api-startup | total 5.7s | load_model 434ms, load_index 4.4s, open_db 109ms
+2026-11-26 15:07:43 | v4-reranker | api-ask | total 20.2s | qvec_cache 0ms, embed_query 15ms, vector_search 3ms, keyword_search 110ms, fusion 0ms, db_lookup 690ms, answer_cache 0ms, llm 19.3s | "graph neural networks for molecules"

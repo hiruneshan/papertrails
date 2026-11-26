@@ -36,7 +36,8 @@ flowchart TB
     SR --> FU["6 · merge<br/>rank fusion"]
     KS --> FU
     FU --> LK["7 · look up<br/>title + abstract"]
-    LK --> LLM["8 · LLM writes answer<br/>with [arXiv:id] citations"]
+    LK --> RR["7b · rerank (optional)<br/>cross-encoder"]
+    RR --> LLM["8 · LLM writes answer<br/>with [arXiv:id] citations"]
   end
 
   FAISS -.-> SR
@@ -148,6 +149,10 @@ Embed and cold start measured in isolation, one question at a time, 8 threads. T
 
 These tests are biased toward keyword search, because each question contains the paper's own words; real questions are phrased differently from abstracts. They show that hybrid keeps a paper with matching words from being missed (and loses nothing on titles); they do not show how much hybrid improves real questions. Hybrid also ranks the right paper *first* less often than keyword-only on the sentence test (51.0% against 97.0%), because the vector list dilutes it; all 8 results go to the LLM, so the top-10 figure matters more here. Latency: about +100–160 ms per question for the keyword step (median of 30 benchmark runs; measured while the machine was running slowly, so likely an upper bound).
 **At scale:** the postings table is sorted by word, so a query's cost follows the number of papers containing its words, not the corpus size; very common words (such as "model") are the slow part. At tens of millions of papers this moves into a search engine (Elasticsearch/OpenSearch, or a vector database with built-in hybrid search) that skips low-scoring documents early.
+
+### Cross-encoder reranker (optional, off by default)
+**Why:** reads the question together with each of 40 shortlisted papers and re-sorts them, which the fast searches can't do. Adds about 1.5 s on this CPU. It greatly improves picking out a specific paper (first place 45% → 96% on sentence questions) but showed no clear gain on 12 real questions. Design, steps and numbers: [reranking.md](reranking.md).
+**At scale:** cost depends on candidates, not corpus size; many simultaneous users would need a GPU or a hosted reranker.
 
 ### FAISS with an HNSW index
 **Why:** a library, not a server. HNSW finds nearest neighbours in about 3 ms here instead of comparing against all 1M vectors, and FAISS exposes every setting (`M`, `efSearch`) so speed and accuracy can be tuned and measured.

@@ -35,3 +35,16 @@ Each change gets a label; every run after it is tagged with that label in runs.j
 - Speed, `papertrail bench`: search total 217 ms hybrid vs 54 ms vector-only (keyword step 171 ms median). Measured while the machine was slow (model load 10x slower than earlier); likely an upper bound.
 - Keyword search built from DuckDB's full-text tables into a word-sorted `postings` table (75.3M rows, +0.8 GB, about 4 min to build). Same ranking as DuckDB's `match_bm25` on 7 queries, in 20-90 ms instead of 650-1200 ms.
 - 34 tests pass (rank fusion, keyword search, hybrid).
+
+## v4-reranker
+
+- **When:** 2026-11-26 14:38
+- **Commit:** 76c4570+changes
+- **What changed:** Cross-encoder reranker (ms-marco-MiniLM-L-6-v2, ONNX int8) re-sorts the best 40 hybrid-search candidates before the top 8 go to the LLM. RERANK=on to enable.
+- **Settings:** provider=openrouter, llm_model=nvidia/nemotron-3-ultra-550b-a55b:free, embed_model=BAAI/bge-small-en-v1.5, embed_backend=onnx-int8, encoder_threads=8, top_k=8, hybrid=True, hybrid_candidates=50, rerank=False, rerank_model=minilm, rerank_candidates=40, hnsw_m=32, hnsw_ef_construction=200, hnsw_ef_search=128, cpu_threads=8, cache=redis, prompt_version=1
+
+**v4-reranker results** (2026-11-26) - off by default
+- Speed (40 candidates): MiniLM int8 1.37 s per question (PyTorch 2.33 s); bge-base int8 6.9 s.
+- `papertrail eval`, 200 questions each, right paper first: sentences 45.0% -> 96.0%, titles 93.5% -> 99.0%; search 0.1 s -> 1.5-1.7 s.
+- Blind LLM grading on 12 real questions (top 8): directly relevant 69.8% -> 67.7%, irrelevant 10.4% -> 4.2%, mean grade 1.59 -> 1.64; better on 6, worse on 4. Within noise.
+- 40 tests pass.
